@@ -3,6 +3,7 @@ from typing import Dict, Optional
 
 import prefixcommons.curie_util as cu
 from cachetools import LRUCache, cached
+from curies import Converter
 
 from kgx.config import get_jsonld_context, get_logger
 from kgx.utils.kgx_utils import contract, expand
@@ -20,7 +21,8 @@ class PrefixManager(object):
 
     DEFAULT_NAMESPACE = "https://www.example.org/UNKNOWN/"
     prefix_map: Dict[str, str]
-    reverse_prefix_map: Dict[str, str]
+    reverse_prefix_map: Dict[str, str]  # TODO remove
+    converter: Converter
 
     def __init__(self, url: str = None):
         """
@@ -74,7 +76,7 @@ class PrefixManager(object):
             )
         else:
             self.prefix_map[""] = self.DEFAULT_NAMESPACE
-        self.reverse_prefix_map = {y: x for x, y in self.prefix_map.items()}
+        self.converter = Converter.from_prefix_map(self.prefix_map)
 
     def update_prefix_map(self, m: Dict[str, str]) -> None:
         """
@@ -120,8 +122,7 @@ class PrefixManager(object):
             A URI corresponding to the CURIE
 
         """
-        uri = expand(curie, [self.prefix_map], fallback)
-        return uri
+        return self.converter.expand(curie)
 
     @cached(LRUCache(maxsize=1024))
     def contract(self, uri: str, fallback: bool = True) -> Optional[str]:
@@ -143,14 +144,8 @@ class PrefixManager(object):
             A CURIE corresponding to the URI
 
         """
-        # always prioritize non-CURIE shortform
-        if self.reverse_prefix_map and uri in self.reverse_prefix_map:
-            curie = self.reverse_prefix_map[uri]
-        else:
-            curie = contract(uri, [self.prefix_map], fallback)
-        return str(curie)
+        return self.converter.compress(uri)
 
-    @staticmethod
     @cached(LRUCache(maxsize=1024))
     def is_curie(s: str) -> bool:
         """
@@ -167,13 +162,8 @@ class PrefixManager(object):
             Whether or not the given string is a CURIE
 
         """
-        if isinstance(s, str):
-            m = re.match(r"^[^ <()>:]*:[^/ :]+$", s)
-            return bool(m)
-        else:
-            return False
+        return self.converter.is_curie(s)
 
-    @staticmethod
     @cached(LRUCache(maxsize=1024))
     def is_iri(s: str) -> bool:
         """
@@ -190,10 +180,7 @@ class PrefixManager(object):
             Whether or not the given string is an IRI.
 
         """
-        if isinstance(s, str):
-            return s.startswith("http") or s.startswith("https")
-        else:
-            return False
+        return self.converter.is_uri(s)
 
     @staticmethod
     @cached(LRUCache(maxsize=1024))
@@ -203,7 +190,6 @@ class PrefixManager(object):
         else:
             return False
 
-    @staticmethod
     @cached(LRUCache(maxsize=1024))
     def get_prefix(curie: str) -> Optional[str]:
         """
@@ -221,11 +207,10 @@ class PrefixManager(object):
 
         """
         prefix: Optional[str] = None
-        if PrefixManager.is_curie(curie):
+        if self.is_curie(curie):
             prefix = curie.split(":", 1)[0]
         return prefix
 
-    @staticmethod
     @cached(LRUCache(maxsize=1024))
     def get_reference(curie: str) -> Optional[str]:
         """
@@ -239,10 +224,9 @@ class PrefixManager(object):
         Returns
         -------
         Optional[str]
-            The reference of a CURIE
+            The reference (i.e., local unique identifier) of a CURIE
 
         """
         reference: Optional[str] = None
-        if PrefixManager.is_curie(curie):
-            reference = curie.split(":", 1)[1]
+        _prefix, reference = self.converter.parse_curie(curie)
         return reference
