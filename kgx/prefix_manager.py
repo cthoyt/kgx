@@ -4,11 +4,19 @@ from typing import Dict, Optional
 import curies
 from cachetools import LRUCache, cached
 
-from kgx.config import get_jsonld_context, get_logger
+from kgx.config import get_jsonld_context, get_logger, get_converter
 from kgx.utils.kgx_utils import contract, expand
 
 log = get_logger()
 
+
+DEFAULT = {
+    "biolink": "https://w3id.org/biolink/vocab/",
+    "owlstar": "http://w3id.org/owlstar/",
+    "MONARCH": "https://monarchinitiative.org/",
+    "MONARCH_NODE": "https://monarchinitiative.org/MONARCH_",
+}
+DEFAULT_CONVERTER = curies.load_prefix_map(DEFAULT)
 
 class PrefixManager(object):
     """
@@ -34,10 +42,9 @@ class PrefixManager(object):
         """
         if url:
             converter = curies.load_jsonld_context(url)
-            context = converter.bimap
         else:
-            context = get_jsonld_context()
-        self.set_prefix_map(context)
+            converter = get_converter()
+        self.converter = curies.chain([DEFAULT_CONVERTER, converter])
 
     def set_prefix_map(self, m: Dict) -> None:
         """
@@ -121,6 +128,8 @@ class PrefixManager(object):
             A URI corresponding to the CURIE
 
         """
+        self.converter.expand()
+
         uri = expand(curie, [self.prefix_map], fallback)
         return uri
 
